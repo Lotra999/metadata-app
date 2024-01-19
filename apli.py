@@ -1,17 +1,19 @@
 import json
+import os
 import streamlit as st
 import pandas as pd
 import base64
-import matplotlib.pyplot as plt
-import tkinter as tk
-from tkinter import ttk, filedialog
-from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+import yaml
 
 
+cell_line_file_path = 'cell_line_data.json'  # Adjust this path as necessary
+options_path = 'options.json'
 
-cell_line_file_path = 'cell_line_data.json' 
-#options_path = 'options.json'
-options_path = './Desktop/options.json'
+
+def read_yaml_config(file_path):
+    with open(file_path, 'r') as file:
+        config = yaml.safe_load(file)
+    return config
 
 # Set page config
 st.set_page_config(
@@ -21,6 +23,52 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
+
+def create_download_link(file_path):
+    with open(file_path, 'rb') as f:
+        data = f.read()
+    b64 = base64.b64encode(data).decode()
+    href = f'<a href="data:file/octet-stream;base64,{b64}" download="{os.path.basename(file_path)}">Download</a>'
+    return href
+
+
+
+def plot_dual_line_chart(file_path):
+    
+    import pandas as pd
+    import matplotlib.pyplot as plt
+
+    # Load the dataset
+    data = pd.read_csv(file_path, sep=';')
+
+    # Converting Time_1, F_1:13, and D_1:13 to numeric values and handling comma as decimal separator
+    data['Time_1'] = pd.to_numeric(data['Time_1'].str.replace(',', '.'), errors='coerce')
+    data['F_1:13'] = pd.to_numeric(data['F_1:13'].str.replace(',', '.'), errors='coerce')
+    data['D_1:13'] = pd.to_numeric(data['D_1:13'].str.replace(',', '.'), errors='coerce')
+
+    # Create a plot with two y-axes
+    fig, ax1 = plt.subplots()
+
+    # First line plot for F_1:13
+    color = 'tab:blue'
+    ax1.set_xlabel('Time')
+    ax1.set_ylabel('Frequency', color=color)
+    ax1.plot(data['Time_1'], data['F_1:13'], color=color)
+    ax1.tick_params(axis='y', labelcolor=color)
+
+    # Second y-axis for D_1:13
+    ax2 = ax1.twinx()
+    color = 'tab:red'
+    ax2.set_ylabel('Dissipation', color=color)
+    ax2.plot(data['Time_1'], data['D_1:13'], color=color)
+    ax2.tick_params(axis='y', labelcolor=color)
+
+    # Show the plot
+    plt.title('Line Plot of frequency and dissipation vs time')
+    return plt
+
+
+
 def get_options(json_file_path):
     try:
         with open(json_file_path, 'r') as file:
@@ -29,71 +77,68 @@ def get_options(json_file_path):
     except (FileNotFoundError, json.JSONDecodeError):
         return []
 
-# Function to collect QCM-D metadata
-def collect_qcmd_metadata():
+def collect_qcmd_metadata(yaml_config_path, options_path):
     st.header("QCM-D Metadata Collection")
-
-
-
-    # Collect metadata form for QCM-D
-    experiment_date = st.date_input("Experiment Date")
-    experiment_name = st.text_input("Experiment name")
-    researcher_name = st.text_input("Researcher name")
-
+    config = read_yaml_config(yaml_config_path)
     options = get_options(options_path)
-    cell_line_type_options = options['cell_line_type_options']
-    
-    cell_line_type = st.selectbox("Cell line type", cell_line_type_options, key='cell_line_type')
-    if 'selected_cell_line_type' not in st.session_state or st.session_state.selected_cell_line_type != cell_line_type:
-        st.session_state.selected_cell_line_type = cell_line_type
-        st.experimental_rerun()
 
-    cell_line_options = options['cell_line_options'][cell_line_type]
-    cell_line = st.selectbox("Cell line", cell_line_options)
+    collected_data = {}
 
-    ligand = st.text_input("Ligand")
-    ligand_concentration = st.text_input("Ligand concentration")
-
-    sensor_options = options['sensor_options']
-    sensor = st.selectbox("Sensor", sensor_options)
-
-    buffer_options = options['buffer_options']
-    buffer = st.selectbox("Buffer", buffer_options)
-
-    temperature_options = options['temperature_options']
-    temperature = st.selectbox("Temperature", temperature_options)
-
-    temperature_fluctuation_options = options['temperature_fluctuation_options']
-    temperature_fluctuation = st.selectbox("Temperature fluctuation", temperature_fluctuation_options)
-
-    flow_options = options['flow_options']
-    flow = st.selectbox("Flow", flow_options)
-
-    unit_of_time_options = options['unit_of_time_options']
-    unit_of_time = st.selectbox("Unit of time", unit_of_time_options)
-
-    additional_description = st.text_input("Additional description")
-    upload_results = st.file_uploader("Upload results", type=["csv", "txt"])
+    for field in config['fields']:
+        if field['type'] == 'text':
+            collected_data[field['name']] = st.text_input(field['label'])
+        elif field['type'] == 'date':
+            collected_data[field['name']] = st.date_input(field['label'])
+        elif field['type'] == 'select':
+            options_key = field['options_key']
+            selected_option = st.selectbox(field['label'], options[options_key], key=field['name'])
+            collected_data[field['name']] = selected_option
+        elif field['type'] == 'select_dynamic':
+            depends_on = field['depends_on']
+            dependent_value = collected_data[depends_on]
+            dynamic_options = options[field['options_key']][dependent_value]
+            selected_dynamic_option = st.selectbox(field['label'], dynamic_options, key=field['name'])
+            collected_data[field['name']] = selected_dynamic_option
+        elif field['type'] == 'file':
+            uploaded_file = st.file_uploader(field['label'], type=field.get('file_types', ["csv", "txt"]))
+            if uploaded_file is not None:
+                st.session_state['uploaded_file'] = uploaded_file
+                collected_data[field['name']] = uploaded_file.name
+    # Add other field types as needed
+    if st.button("Submit"):
+        save_metadata("qcmd_metadata.csv", collected_data)
    
 
-    if st.button("Submit"):
-        # Process and save QCM-D metadata
-        save_qcmd_metadata("qcmd_metadata.csv", experiment_date, experiment_name, researcher_name, cell_line_type, cell_line, ligand,
-                            ligand_concentration, sensor, buffer, temperature, temperature_fluctuation, flow, unit_of_time, additional_description, upload_results)
-        
-
-    # Function to display and download uploaded results
-def browse_metadata():
-    st.header("Browse Metadata")
-
-    # Load the metadata
+def save_metadata(metadata_path, collected_data):
     metadata_path = f"{experiment_type.lower()}_metadata.csv"
     try:
-        metadata = pd.read_csv(metadata_path)
+        existing_metadata = pd.read_csv(metadata_path)
     except FileNotFoundError:
-        st.warning("No metadata available.")
-        return
-  
+        existing_metadata = pd.DataFrame()
+    
+    uploaded_file_path = None
+    print(collected_data.keys())
+    if collected_data["upload_results1"] is not None:
+        file_path = f"{collected_data['experiment_name']}-{collected_data['upload_results1']}"  # Adjust the path
+        with open(file_path, 'wb') as f:
+            f.write(st.session_state['uploaded_file'].getbuffer())
+
+        uploaded_file_path = file_path
+    else:
+        uploaded_file_path = None
+
+    collected_data['Uploaded File Path'] = uploaded_file_path
+    
+    print(collected_data)
+    new_metadata = pd.DataFrame([collected_data])
+    # Concatenate new QCM-D metadata with existing metadata
+    metadata = pd.concat([existing_metadata, new_metadata], ignore_index=True)
+
+    # Save QCM-D metadata to a CSV file
+    metadata.to_csv(metadata_path, index=False)
+
+    st.success("QCM-D Metadata submitted successfully!")
+    
     # Function to save QCM-D metadata to CSV file
 def save_qcmd_metadata(metadata_path, experiment_date, experiment_name, researcher_name, cell_line_type, cell_line, ligand,
                         ligand_concentration, sensor, buffer, temperature, temperature_fluctuation, flow, unit_of_time, additional_description, 
@@ -104,6 +149,17 @@ def save_qcmd_metadata(metadata_path, experiment_date, experiment_name, research
         existing_metadata = pd.read_csv(metadata_path)
     except FileNotFoundError:
         existing_metadata = pd.DataFrame()
+
+
+    uploaded_file_path = None
+    if upload_results is not None:
+        file_path = f"{experiment_name}-{upload_results.name}"  # Adjust the path
+        with open(file_path, 'wb') as f:
+            f.write(upload_results.getbuffer())
+
+        uploaded_file_path = file_path
+    else:
+        uploaded_file_path = None
 
     # Save new QCM-D metadata to DataFrame
     new_metadata = pd.DataFrame({
@@ -121,7 +177,7 @@ def save_qcmd_metadata(metadata_path, experiment_date, experiment_name, research
         "Flow": [flow],
         "Unit of time": [unit_of_time],
         "Additional description": [additional_description],
-        "Upload results": [upload_results.name if upload_results else None]
+        "Uploaded File Path": [uploaded_file_path]
     })
 
     # Concatenate new QCM-D metadata with existing metadata
@@ -130,41 +186,8 @@ def save_qcmd_metadata(metadata_path, experiment_date, experiment_name, research
     # Save QCM-D metadata to a CSV file
     metadata.to_csv(metadata_path, index=False)
 
-
-
-
     st.success("QCM-D Metadata submitted successfully!")
     
-
-def metadata_visualization():
-    st.header("Visualization of Results")
-
-    # Load QCM-D data from Streamlit file uploader
-    uploaded_file = st.file_uploader("Choose a CSV file", type="csv")
-
-    if uploaded_file is not None:
-        try:
-            qcm_data = pd.read_csv(uploaded_file)
-        except pd.errors.ParserError as e:
-            print(f"Error reading CSV: {e}")
-
-
-        # Generate and display plot
-        st.subheader("QCM-D Experiment Results")
-        plt.figure(figsize=(8, 6))
-        plt.plot(qcm_data['Time'], qcm_data['Frequency'])
-        plt.title('QCM-D Experiment Results')
-        plt.xlabel('Time (s)')
-        plt.ylabel('Frequency (Hz)')
-        plt.grid(True)
-        st.pyplot()
-
-if __name__ == "__main__":
-    metadata_visualization()
-
-    
-
-
 
 # Function to collect SPR metadata
 def collect_spr_metadata():
@@ -183,41 +206,15 @@ def collect_spr_metadata():
     additional_description = st.text_input("Additional description")
     upload_results = st.file_uploader("Upload results", type=["csv", "txt"])
 
+    if upload_results is not None:
+        st.session_state['uploaded_file'] = upload_results
+
     if st.button("Submit"):
         # Process and save SPR metadata
         save_spr_metadata("spr_metadata.csv", experiment_date, experiment_name, researcher_name, sample_type, ligand,
                             ligand_concentration, analyte, analyte_concentration, flow_rate,
                             additional_description, upload_results)
 
-# Function to save SPR metadata to CSV file
-def save_spr_metadata(metadata_path, experiment_date, experiment_name, researcher_name, sample_type, ligand,
-                        ligand_concentration, analyte, analyte_concentration, flow_rate,
-                        additional_description, upload_results):
-    # Load existing metadata or create an empty DataFrame
-    metadata_path = f"{experiment_type.lower()}_metadata.csv"
-
-    try:
-        existing_metadata = pd.read_csv(metadata_path)
-    except FileNotFoundError:
-        existing_metadata = pd.DataFrame()
-
-    # Save new SPR metadata to DataFrame
-    new_metadata = pd.DataFrame({
-        "Experiment Date": [str(experiment_date)],
-        "Experiment Name": [experiment_name],
-        "Researcher Name": [researcher_name],
-        "Sample type": [sample_type],
-        "Ligand": [ligand],
-        "Ligand concentration": [ligand_concentration],
-        "Analyte": [analyte],
-        "Analyte concentration": [analyte_concentration],
-        "Flow rate": [flow_rate],
-        "Additional description": [additional_description],
-        "Upload results": [upload_results.name if upload_results else None]
-    })
-
-    # Concatenate new SPR metadata with existing metadata
-    metadata = pd.concat([existing_metadata, new_metadata], ignore_index=True)
 
 # Function to save SPR metadata to CSV file
 def save_spr_metadata(metadata_path, experiment_date, experiment_name, researcher_name, sample_type, ligand,
@@ -267,16 +264,15 @@ def browse_and_visualize_metadata(experiment_type):
         st.write(f"### All {experiment_type} Metadata")
 
         # Ensure necessary columns are present in the DataFrame
-        necessary_columns = ["Experiment Date", "Experiment Name", "Researcher Name"]
-        for column in necessary_columns:
-            if column not in metadata.columns:
-                metadata[column] = ""
+        necessary_columns = ["experiment_date", "experiment_name", "researcher_name"]
 
+        
         st.table(metadata[necessary_columns])
 
         # Add a multiselect for row selection
         all_rows_option = "Select All Rows"
         selected_rows = st.multiselect("Select Rows for Detailed View", [all_rows_option] + metadata.index.tolist())
+
 
         if all_rows_option in selected_rows:
             # Display additional details for all rows
@@ -286,9 +282,13 @@ def browse_and_visualize_metadata(experiment_type):
             
             # Display additional details for the selected rows
             selected_data = metadata.loc[selected_rows]
+            # Add download links to the selected data
             st.write(f"### Selected {experiment_type} Rows Details:")
             st.table(selected_data)
             
+            for index, row in selected_data.iterrows():
+                download_link = create_download_link(row['Uploaded File Path'])
+                st.markdown(f"Download file for record {index}: {download_link}", unsafe_allow_html=True)
             # Add delete button for selected rows
             delete_button = st.button(f"Delete Selected {experiment_type} Rows")
 
@@ -317,6 +317,20 @@ def browse_and_visualize_metadata(experiment_type):
                     href = f'<a href="data:file/txt;base64,{b64}" download="selected_rows.txt" style="color: white; background-color: #4CAF50; padding: 8px 16px; text-decoration: none; display: inline-block; border-radius: 5px;">Download TXT</a>'
                     st.markdown(href, unsafe_allow_html=True)
                 
+
+        st.write(f"### Dual Line Chart Visualization for {experiment_type} Metadata")
+        selected_index = st.selectbox("Select Record for Visualization", metadata.index)
+        record = metadata.iloc[selected_index]
+        file_path = record.get("Uploaded File Path")
+
+        if file_path and os.path.exists(file_path):
+            # No need for a second upload, use the file from session state
+            plt = plot_dual_line_chart(file_path)
+            st.pyplot(plt)
+        else:
+            st.info("Please upload a file in the 'Collect Metadata' section for visualization.")
+
+
     else:
         st.info(f"No {experiment_type} metadata available.")
 
@@ -341,17 +355,17 @@ def new_parameters_page():
     selected_experiment_type = st.selectbox("Select Experiment Type", experiment_type_options)
 
     if selected_experiment_type == "QCM-D":
-        collect_qcmd_metadata()
+        collect_qcmd_metadata("qcmd_metadata_config.yaml",options_path)
     elif selected_experiment_type == "SPR":
         collect_spr_metadata()
 
 # Select the page
-selected_page = st.sidebar.radio("Select Page", ["Collect Metadata", "Browse Metadata", "Visualization of Results", "New parameters"])
+selected_page = st.sidebar.radio("Select Page", ["Collect Metadata", "Browse Metadata"])
 
 # Based on the selected experiment and page, perform the corresponding action
 if selected_page == "Collect Metadata":
     if experiment_type == "QCM-D":
-        collect_qcmd_metadata()
+        collect_qcmd_metadata("qcmd_metadata_config.yaml",options_path)
     elif experiment_type == "SPR":
         collect_spr_metadata()
 elif selected_page == "Browse Metadata":
@@ -359,47 +373,10 @@ elif selected_page == "Browse Metadata":
         browse_and_visualize_metadata("QCM-D")
     elif experiment_type == "SPR":
         browse_and_visualize_metadata("SPR")
-elif selected_page == "Visualization of Results":
-    # Add the code for visualization of results here
-    st.header("Visualization of Results Page")
-else:  # Corrected the page label here
-    new_parameters_page()
 
 
-# Check if there is uploaded data in session_state
-    if st.session_state.uploaded_data is not None:
-        uploaded_data = st.session_state.uploaded_data
 
-        # Display the raw data
-        st.subheader("Raw Data:")
-        st.write(uploaded_data)
-
-        # Check if the data has columns suitable for visualization (e.g., numeric columns)
-        numeric_columns = uploaded_data.select_dtypes(include=['float64', 'int64']).columns
-
-        if len(numeric_columns) > 0:
-            # Allow users to select columns for visualization
-            selected_columns = st.multiselect("Select columns for visualization", numeric_columns)
-
-            if len(selected_columns) > 0:
-                # Allow users to choose the type of plot (e.g., line plot, scatter plot)
-                plot_type = st.selectbox("Select plot type", ["line", "scatter"])
-
-                # Create the selected plot
-                st.subheader("Visualization:")
-                if plot_type == "line":
-                    st.line_chart(uploaded_data[selected_columns])
-                elif plot_type == "scatter":
-                    st.scatter_chart(uploaded_data[selected_columns])
-
-            else:
-                st.warning("Please select at least one numeric column for visualization.")
-
-        else:
-            st.warning("No numeric columns found for visualization in the uploaded data.")
-    else:
-        st.info("No data available for visualization. Please submit metadata with results first.")
-
-
+else:
+    st.warning("Invalid page selected.")
 
 
