@@ -1,0 +1,70 @@
+fields:
+  - name: "experiment_date"
+    label: "Experiment Date"
+    type: "date"
+
+  - name: "experiment_name"
+    label: "Experiment Name"
+    type: "text"
+
+  - name: "researcher_name"
+    label: "Researcher Name"
+    type: "text"
+
+  - name: "cell_line_type"
+    label: "Cell Line Type"
+    type: "select"
+    options_key: "cell_line_type_options"
+
+  - name: "cell_line"
+    label: "Cell Line"
+    type: "select_dynamic"
+    options_key: "cell_line_options"
+    depends_on: "cell_line_type"
+
+  - name: "ligand"
+    label: "Ligand"
+    type: "text"
+
+  - name: "ligand_concentration"
+    label: "Ligand Concentration"
+    type: "text"
+
+  - name: "sensor"
+    label: "Sensor"
+    type: "select"
+    options_key: "sensor_options"
+
+  - name: "buffer"
+    label: "Buffer"
+    type: "select"
+    options_key: "buffer_options"
+
+  - name: "temperature"
+    label: "Temperature"
+    type: "select"
+    options_key: "temperature_options"
+
+  - name: "temperature_fluctuation"
+    label: "Temperature Fluctuation"
+    type: "select"
+    options_key: "temperature_fluctuation_options"
+
+  - name: "flow"
+    label: "Flow"
+    type: "select"
+    options_key: "flow_options"
+
+  - name: "unit_of_time"
+    label: "Unit of Time"
+    type: "select"
+    options_key: "unit_of_time_options"
+
+  - name: "additional_description"
+    label: "Additional Description"
+    type: "text"
+
+  - name: "upload_results1"
+    label: "Upload Results"
+    type: "file"
+    file_types: ["csv", "txt"]
